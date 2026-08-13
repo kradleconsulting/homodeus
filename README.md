@@ -1,5 +1,7 @@
 # Telegram Claude Bot
 
+[![Build](https://github.com/kradleconsulting/homodeus/actions/workflows/build.yml/badge.svg)](https://github.com/kradleconsulting/homodeus/actions/workflows/build.yml)
+
 A minimal Azure Functions (.NET 10, isolated worker) backend that receives Telegram
 channel messages via webhook, sends them to Claude for classification, and replies
 either with a factual answer or a joke.
