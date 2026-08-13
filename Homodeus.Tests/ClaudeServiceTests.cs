@@ -47,6 +47,39 @@ public class ClaudeServiceTests
     }
 
     [Fact]
+    public async Task ClassifyAndReplyAsync_IncludesHistoryTurnsBeforeNewMessage()
+    {
+        string? capturedBody = null;
+        var factory = new FakeHttpClientFactory(req =>
+        {
+            // Read now, while the request (and its content) is still alive -
+            // ClaudeService disposes the request right after SendAsync returns.
+            capturedBody = req.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            return AnthropicResponse("""{"type": "fact", "reply": "About 2.1 million in Paris proper."}""");
+        });
+        var service = new ClaudeService(factory, "test-key", null);
+        var history = new[]
+        {
+            new ConversationTurn("user", "What's the capital of France?"),
+            new ConversationTurn("assistant", "Paris."),
+        };
+
+        await service.ClassifyAndReplyAsync("What's its population?", history);
+
+        Assert.NotNull(capturedBody);
+        using var doc = System.Text.Json.JsonDocument.Parse(capturedBody!);
+        var messages = doc.RootElement.GetProperty("messages");
+
+        Assert.Equal(3, messages.GetArrayLength());
+        Assert.Equal("user", messages[0].GetProperty("role").GetString());
+        Assert.Equal("What's the capital of France?", messages[0].GetProperty("content").GetString());
+        Assert.Equal("assistant", messages[1].GetProperty("role").GetString());
+        Assert.Equal("Paris.", messages[1].GetProperty("content").GetString());
+        Assert.Equal("user", messages[2].GetProperty("role").GetString());
+        Assert.Equal("What's its population?", messages[2].GetProperty("content").GetString());
+    }
+
+    [Fact]
     public async Task ClassifyAndReplyAsync_ThrowsOnNonSuccessStatusCode()
     {
         var factory = new FakeHttpClientFactory(_ =>

@@ -27,6 +27,10 @@ public class ClaudeService
         - If "joke": reply with a short, original, good-natured joke or witty one-liner relevant to the message. Never punch down, never use slurs or offensive humor.
         - Keep all replies under 400 characters.
         - If you are unsure which type it is, default to "fact" and just answer helpfully.
+        - You may see earlier turns from today's conversation in this chat before the newest
+          message. Use them only as context (e.g. to resolve "it"/"that", follow up on a prior
+          topic). Classify and respond to the newest user message only - never re-answer or
+          re-classify an earlier turn.
         """;
 
     public ClaudeService(IHttpClientFactory httpClientFactory)
@@ -47,17 +51,25 @@ public class ClaudeService
         _model = model ?? "claude-haiku-4-5-20251001";
     }
 
-    public async Task<ClaudeReply> ClassifyAndReplyAsync(string userMessage, CancellationToken ct = default)
+    public async Task<ClaudeReply> ClassifyAndReplyAsync(
+        string userMessage,
+        IReadOnlyList<ConversationTurn>? history = null,
+        CancellationToken ct = default)
     {
+        var messages = new List<object>();
+        if (history is { Count: > 0 })
+        {
+            foreach (var turn in history)
+                messages.Add(new { role = turn.Role, content = turn.Text });
+        }
+        messages.Add(new { role = "user", content = userMessage });
+
         var requestBody = new
         {
             model = _model,
             max_tokens = 300,
             system = SystemPrompt,
-            messages = new[]
-            {
-                new { role = "user", content = userMessage }
-            }
+            messages
         };
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages");

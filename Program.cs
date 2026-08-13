@@ -10,6 +10,7 @@ var host = new HostBuilder()
         services.AddSingleton<RateLimiterService>();
         services.AddSingleton<ClaudeService>();
         services.AddSingleton<TelegramSenderService>();
+        services.AddSingleton<ConversationHistoryService>();
     })
     .Build();
 

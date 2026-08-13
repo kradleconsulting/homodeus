@@ -15,18 +15,21 @@ public class TelegramWebhookFunction
     private readonly RateLimiterService _rateLimiter;
     private readonly ClaudeService _claude;
     private readonly TelegramSenderService _sender;
+    private readonly ConversationHistoryService _history;
     private readonly int _maxInputLength;
 
     public TelegramWebhookFunction(
         ILoggerFactory loggerFactory,
         RateLimiterService rateLimiter,
         ClaudeService claude,
-        TelegramSenderService sender)
+        TelegramSenderService sender,
+        ConversationHistoryService history)
     {
         _logger = loggerFactory.CreateLogger<TelegramWebhookFunction>();
         _rateLimiter = rateLimiter;
         _claude = claude;
         _sender = sender;
+        _history = history;
         _maxInputLength = int.TryParse(
             Environment.GetEnvironmentVariable("MAX_INPUT_MESSAGE_LENGTH"), out var len) ? len : 500;
     }
@@ -80,8 +83,10 @@ public class TelegramWebhookFunction
 
         try
         {
-            var result = await _claude.ClassifyAndReplyAsync(text, ct);
+            var history = _history.GetTodayTurns(chatId);
+            var result = await _claude.ClassifyAndReplyAsync(text, history, ct);
             await SafeSend(chatId, result.Reply, ct);
+            _history.AppendTurn(chatId, text, result.Reply);
         }
         catch (Exception ex)
         {

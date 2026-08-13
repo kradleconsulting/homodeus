@@ -15,6 +15,9 @@ Telegram --webhook--> Azure Function (TelegramWebhook) --> Claude API (classify 
 
 - One Claude API call per message does both the classification and the reply generation
   (see the system prompt in `Services/ClaudeService.cs`).
+- `Services/ConversationHistoryService.cs` keeps a rolling per-chat conversation history
+  for the current UTC calendar day, so follow-up messages ("what about tomorrow?") have
+  context. See [Conversation memory](#conversation-memory) below for the details/caveats.
 - `Services/RateLimiterService.cs` provides basic abuse protection: a per-user/chat
   per-minute cap and a global daily cap, both configurable via app settings.
 - The webhook always returns HTTP 200 quickly to Telegram and logs errors internally,
@@ -116,7 +119,8 @@ az functionapp config appsettings set --name YOUR-UNIQUE-FUNCTION-APP-NAME \
     ANTHROPIC_MODEL="claude-haiku-4-5-20251001" \
     MAX_MESSAGES_PER_USER_PER_MINUTE="5" \
     MAX_MESSAGES_PER_DAY_TOTAL="500" \
-    MAX_INPUT_MESSAGE_LENGTH="500"
+    MAX_INPUT_MESSAGE_LENGTH="500" \
+    MAX_HISTORY_TURNS="8"
 ```
 
 ### 7. Deploy
@@ -136,10 +140,32 @@ Send a message in your channel — try one clearly factual ("What's the boiling 
 of water?") and one clearly humorous ("tell me a joke about mondays") and confirm
 the bot replies appropriately in each case.
 
+## Conversation memory
+
+`Services/ConversationHistoryService.cs` keeps the last `MAX_HISTORY_TURNS` user/assistant
+exchanges per chat (default 8) and sends them along with each new message, so Claude has
+context for follow-ups within the same conversation.
+
+- **Scoped to "today":** history is keyed to the current UTC calendar day. At UTC
+  midnight, or for a chat's first message ever, a chat starts with no history - there's
+  no explicit reset job, the day rollover check does it implicitly.
+- **In-memory, not durable:** same trade-off as `RateLimiterService` - history lives in
+  the Function instance's process memory. A cold start or scale-out (common on the
+  Consumption plan) silently clears it mid-day. Fine for a hobby-scale, mostly-single-
+  instance bot; if usage grows enough that this becomes noticeable, swap in Azure Table
+  Storage keyed by `(chatId, date)` - the point read/write pattern (one row per chat per
+  day) maps directly onto what's here now.
+- **Privacy note:** message text is retained (in memory only, for the current day) to
+  support this. If that's not acceptable for your use case, set `MAX_HISTORY_TURNS="0"`
+  to disable history entirely - each message is then classified and answered standalone,
+  as before this feature existed.
+
 ## Cost controls in place / still worth doing
 
 - ✅ Per-user/chat rate limit and daily total cap (in code, in-memory)
 - ✅ Input length cap to stop huge pasted text from inflating token cost
+- ✅ Conversation history capped to `MAX_HISTORY_TURNS` per chat, so a long-running
+  conversation's input tokens don't grow unbounded through the day
 - ⬜ Set a custom monthly spend limit in the [Anthropic Console](https://console.anthropic.com)
   Limits page as an outer backstop
 - ⬜ Set an Azure budget alert on the resource group (Azure cost should be near $0
