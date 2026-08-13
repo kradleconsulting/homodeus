@@ -66,6 +66,15 @@ public class TelegramWebhookFunction
             return response;
         }
 
+        if (message.From?.IsBot == true)
+        {
+            // Guards against a self-reply loop: this bot is an admin of the channel it
+            // posts to, so its own replies arrive back here as a new channel_post. Also
+            // skips any other bot posting into the same chat, which is the right call too.
+            _logger.LogInformation("Ignoring message from bot user {UserId}", message.From.Id);
+            return response;
+        }
+
         var chatId = message.Chat.Id;
 
         if (text.Length > _maxInputLength)
