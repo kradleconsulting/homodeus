@@ -1,6 +1,6 @@
 # Telegram Claude Bot
 
-A minimal Azure Functions (.NET 8, isolated worker) backend that receives Telegram
+A minimal Azure Functions (.NET 10, isolated worker) backend that receives Telegram
 channel messages via webhook, sends them to Claude for classification, and replies
 either with a factual answer or a joke.
 
@@ -20,17 +20,17 @@ Telegram --webhook--> Azure Function (TelegramWebhook) --> Claude API (classify 
 
 ## Before you build
 
-This was written to standard, current patterns for Azure Functions Worker SDK and
-Telegram.Bot, but I couldn't compile/test it in my sandbox (no NuGet access there).
-Two things worth a quick glance the first time you build:
+`dotnet restore && dotnet build` succeeds as-is against .NET 10 SDK 10.0.302 and the
+package versions currently pinned in the `.csproj` (0 warnings, 0 errors). If you bump
+`Telegram.Bot` to a newer major version, two spots are worth a quick glance since this
+library has moved things around across releases in the past:
 
 1. **`Services/TelegramSenderService.cs`** — the send method name has changed across
    Telegram.Bot major versions (`SendTextMessageAsync` in older releases, `SendMessage`
-   in newer ones). If it doesn't compile, your IDE's autocomplete on the client object
-   will show you the correct current name — one-line fix.
-2. **Package versions in the `.csproj`** — pinned to versions I'm confident exist, but
-   check NuGet for anything newer you'd prefer before deploying.
-3. **`JsonBotAPI.Options`** in `TelegramWebhookFunction.cs` — this is the library's own
+   in newer ones, which is what's currently used). If it doesn't compile, your IDE's
+   autocomplete on the client object will show you the correct current name — one-line
+   fix.
+2. **`JsonBotAPI.Options`** in `TelegramWebhookFunction.cs` — this is the library's own
    serializer settings, required to correctly map Telegram's snake_case JSON (`message`,
    `channel_post`, etc.) onto the C# `Update` type. Using the default `JsonSerializer`
    settings instead will silently deserialize every field to null except a lucky few.
@@ -41,7 +41,7 @@ Two things worth a quick glance the first time you build:
 ## Setup steps
 
 ### 1. Local prerequisites
-- .NET 8 SDK
+- .NET 10 SDK
 - [Azure Functions Core Tools v4](https://learn.microsoft.com/azure/azure-functions/functions-run-local)
 - Azure CLI (for deployment)
 
@@ -77,12 +77,32 @@ az group create --name telegram-bot-rg --location eastus
 az storage account create --name telegrambotstorage --location eastus \
   --resource-group telegram-bot-rg --sku Standard_LRS
 
+az functionapp list-runtimes --os windows \
+  --query "[?runtime=='dotnet-isolated']" --output table
+# confirm the exact .NET 10 version string for your CLI version, then use it below
+
 az functionapp create --resource-group telegram-bot-rg \
   --consumption-plan-location eastus \
-  --runtime dotnet-isolated --functions-version 4 \
+  --os-type Windows \
+  --runtime dotnet-isolated --runtime-version 10 --functions-version 4 \
   --name YOUR-UNIQUE-FUNCTION-APP-NAME \
   --storage-account telegrambotstorage
 ```
+
+> **.NET 10 on Consumption plan:** the flags above pin the app to .NET 10 on
+> Windows Consumption, which is what this project needs. `--runtime-version 10`
+> is the expected format, but `az functionapp list-runtimes` (above) is the
+> source of truth for the exact version string your Azure CLI version accepts.
+>
+> **Linux Consumption does not support .NET 10** — if you'd rather host on
+> Linux, use a [Flex Consumption plan](https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan)
+> instead (`az functionapp create --flexconsumption-location ...`). Windows
+> Consumption (as above) is the simplest path and is what the rest of these
+> steps assume.
+>
+> This also requires `Microsoft.Azure.Functions.Worker` ≥ 2.50.0 and
+> `Microsoft.Azure.Functions.Worker.Sdk` ≥ 2.0.5 — already satisfied by the
+> versions pinned in `Homodeus.csproj`.
 
 ### 6. Set app settings on Azure (don't put secrets in source control)
 ```bash
