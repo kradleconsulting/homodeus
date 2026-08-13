@@ -130,6 +130,9 @@ func azure functionapp publish YOUR-UNIQUE-FUNCTION-APP-NAME
 Note the function URL it prints, plus your function key (find it in the Azure
 Portal under the function > "Function Keys", or via `az functionapp keys list`).
 
+This manual step is only needed once, to stand the app up. After that, pushes to
+`main` deploy automatically - see [Continuous deployment](#continuous-deployment) below.
+
 ### 8. Register the webhook with Telegram
 ```bash
 curl "https://api.telegram.org/bot<YOUR_TELEGRAM_BOT_TOKEN>/setWebhook?url=https://YOUR-UNIQUE-FUNCTION-APP-NAME.azurewebsites.net/api/telegram/webhook?code=YOUR_FUNCTION_KEY"
@@ -139,6 +142,51 @@ curl "https://api.telegram.org/bot<YOUR_TELEGRAM_BOT_TOKEN>/setWebhook?url=https
 Send a message in your channel — try one clearly factual ("What's the boiling point
 of water?") and one clearly humorous ("tell me a joke about mondays") and confirm
 the bot replies appropriately in each case.
+
+## Continuous deployment
+
+`.github/workflows/build.yml` has a `deploy` job that runs after `build` succeeds, only
+on pushes to `main` (not on PRs) - so once step 5-6 above have stood the app up the first
+time, further updates just need `git push`.
+
+It authenticates to Azure via **OIDC federated credentials** (no client secret stored
+anywhere, nothing to rotate/expire):
+
+- An Azure AD app registration trusts GitHub's OIDC issuer for exactly
+  `repo:<owner>/<repo>:ref:refs/heads/main` - only a workflow run on that branch, in that
+  repo, can mint a usable token.
+- Its service principal has the **Website Contributor** role scoped to just the one
+  Function App resource (not the resource group) - it can redeploy code, not touch app
+  settings/secrets or anything else in the subscription.
+
+To set this up for your own fork/deployment:
+
+```bash
+APP_ID=$(az ad app create --display-name "github-actions-<function-app-name>-deploy" --query appId -o tsv)
+az ad sp create --id "$APP_ID"
+
+az ad app federated-credential create --id "$APP_ID" --parameters '{
+  "name": "github-main",
+  "issuer": "https://token.actions.githubusercontent.com",
+  "subject": "repo:YOUR-GH-ORG/YOUR-REPO:ref:refs/heads/main",
+  "audiences": ["api://AzureADTokenExchange"]
+}'
+
+# Role assignment scoped to just the Function App. If `az role assignment create --scope`
+# errors with "MissingSubscription" on your az CLI version, use `az rest` against the ARM
+# roleAssignments API directly instead - that's a CLI-level bug, not a permissions issue.
+az role assignment create --assignee "$APP_ID" --role "Website Contributor" \
+  --scope "$(az functionapp show --name YOUR-FUNCTION-APP-NAME --resource-group YOUR-RG --query id -o tsv)"
+```
+
+Then add three **GitHub repo secrets** (Settings → Secrets and variables → Actions):
+`AZURE_CLIENT_ID` (the app's `appId`), `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`. None of
+these three are secret on their own without a valid token from the trusted repo/branch, but
+storing them as secrets is the conventional/safe default.
+
+The workflow also targets a GitHub **environment** named `production` (auto-created on
+first run) - add required reviewers or wait timers there later if you want a manual
+approval gate before deploys go out.
 
 ## Conversation memory
 
