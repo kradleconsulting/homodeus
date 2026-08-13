@@ -18,14 +18,20 @@ public class RateLimiterService
     private readonly object _dailyLock = new();
 
     public RateLimiterService()
+        : this(
+            int.TryParse(Environment.GetEnvironmentVariable("MAX_MESSAGES_PER_USER_PER_MINUTE"), out var perUser)
+                ? perUser : 5,
+            int.TryParse(Environment.GetEnvironmentVariable("MAX_MESSAGES_PER_DAY_TOTAL"), out var perDay)
+                ? perDay : 500)
     {
-        _maxPerUserPerMinute = int.TryParse(
-            Environment.GetEnvironmentVariable("MAX_MESSAGES_PER_USER_PER_MINUTE"), out var perUser)
-            ? perUser : 5;
+    }
 
-        _maxTotalPerDay = int.TryParse(
-            Environment.GetEnvironmentVariable("MAX_MESSAGES_PER_DAY_TOTAL"), out var perDay)
-            ? perDay : 500;
+    // Internal ctor for tests: lets us use small, deterministic limits without
+    // touching process environment variables.
+    internal RateLimiterService(int maxPerUserPerMinute, int maxTotalPerDay)
+    {
+        _maxPerUserPerMinute = maxPerUserPerMinute;
+        _maxTotalPerDay = maxTotalPerDay;
     }
 
     /// <summary>

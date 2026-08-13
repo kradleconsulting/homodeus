@@ -30,11 +30,21 @@ public class ClaudeService
         """;
 
     public ClaudeService(IHttpClientFactory httpClientFactory)
+        : this(
+            httpClientFactory,
+            Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+                ?? throw new InvalidOperationException("ANTHROPIC_API_KEY is not set."),
+            Environment.GetEnvironmentVariable("ANTHROPIC_MODEL"))
+    {
+    }
+
+    // Internal ctor for tests: lets us inject a fake IHttpClientFactory and a
+    // known API key/model without touching process environment variables.
+    internal ClaudeService(IHttpClientFactory httpClientFactory, string apiKey, string? model)
     {
         _httpClient = httpClientFactory.CreateClient();
-        _apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
-            ?? throw new InvalidOperationException("ANTHROPIC_API_KEY is not set.");
-        _model = Environment.GetEnvironmentVariable("ANTHROPIC_MODEL") ?? "claude-haiku-4-5-20251001";
+        _apiKey = apiKey;
+        _model = model ?? "claude-haiku-4-5-20251001";
     }
 
     public async Task<ClaudeReply> ClassifyAndReplyAsync(string userMessage, CancellationToken ct = default)
@@ -74,7 +84,7 @@ public class ClaudeService
         return ParseModelJson(text);
     }
 
-    private static ClaudeReply ParseModelJson(string text)
+    internal static ClaudeReply ParseModelJson(string text)
     {
         try
         {
@@ -84,8 +94,10 @@ public class ClaudeService
                 cleaned = cleaned[4..].Trim();
 
             using var doc = JsonDocument.Parse(cleaned);
-            var type = doc.RootElement.GetProperty("type").GetString() ?? "fact";
-            var reply = doc.RootElement.GetProperty("reply").GetString() ?? "";
+            var type = doc.RootElement.TryGetProperty("type", out var typeProp)
+                ? typeProp.GetString() ?? "fact" : "fact";
+            var reply = doc.RootElement.TryGetProperty("reply", out var replyProp)
+                ? replyProp.GetString() ?? "" : "";
             return new ClaudeReply(type, reply);
         }
         catch (JsonException)
