@@ -224,3 +224,19 @@ context for follow-ups within the same conversation.
 If this is a Telegram **channel** (not a group), bots typically only see messages if
 they're added as an **admin** of the channel — plain "member" bots often can't read
 channel posts at all. If replies aren't arriving, check the bot's admin status first.
+
+## Roadmap / next steps
+
+- ⬜ **Durable rate limiting + conversation history** — both are currently in-memory
+  (`RateLimiterService`, `ConversationHistoryService`) and reset on cold start/scale-out.
+  Same upgrade path for both: Azure Table Storage keyed by `(chatId, date)`.
+- ⬜ **Structured logging / telemetry** — Application Insights is wired up but nothing
+  emits custom metrics yet (Claude latency, token spend estimate, fact/joke ratio).
+- ⬜ **Command support** — e.g. a `/help` or admin command path to adjust rate limits or
+  check usage, instead of every message going through classification.
+- ⬜ **Approval gate on deploys** — the `production` GitHub environment (see
+  [Continuous deployment](#continuous-deployment)) is auto-created with no protection
+  rules yet; add required reviewers there if deploys should need a sign-off.
+
+Done so far: .NET 10 build + CI (build/test on every push/PR), a basic xUnit test suite,
+per-day in-memory conversation memory, and CD to Azure on push to `main` via OIDC.
